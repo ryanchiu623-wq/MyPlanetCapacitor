@@ -1,0 +1,13 @@
+{
+  "name": "myplanet-browser",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "sync": "cap sync"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.4.1",
+    "@capacitor/cli": "^8.4.1",
+    "@capacitor/core": "^8.4.1"
+  }
+}

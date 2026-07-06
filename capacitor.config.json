@@ -1,0 +1,8 @@
+{
+  "appId": "com.myplanet.browser",
+  "appName": "MyPlanet 瀏覽器",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "https"
+  }
+}

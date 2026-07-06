@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">MyPlanet 瀏覽器</string>
+    <string name="title_activity_main">MyPlanet 瀏覽器</string>
+    <string name="package_name">com.myplanet.browser</string>
+    <string name="custom_url_scheme">com.myplanet.browser</string>
+</resources>

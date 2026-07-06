@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  裝置的區網 IP 是 DHCP 動態配發的，事先無法把 IP 寫進網域白名單
+  （network-security-config 的 domain 規則不支援 IP 網段/萬用字元），
+  所以用 base-config 開放明文流量。實際會連線的 host 由
+  DeviceNetworkPlugin + www/app.js 控制，只會是 192.168.4.1 或探索到的裝置 LAN IP。
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <title>MyPlanet 瀏覽器</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- 裝置的即時網頁顯示在這個 iframe 裡，外層負責判斷 host / 顯示狀態 -->
+  <iframe id="device-frame" class="device-frame hidden"></iframe>
+
+  <!--
+    iframe 是跨來源內容，外層 JS 無法控制它的瀏覽歷史，
+    也沒辦法對 iframe 內的觸控做手勢下拉刷新，
+    這顆固定按鈕是取代「返回鍵/下拉刷新」的手段：重新載入回裝置首頁。
+  -->
+  <button id="reload-fab" class="reload-fab hidden" title="重新整理">⟳</button>
+
+  <div id="connecting-view" class="state-view hidden">
+    <div class="spinner"></div>
+    <p id="connecting-message">正在偵測網路狀態…</p>
+  </div>
+
+  <div id="error-view" class="state-view hidden">
+    <p id="error-message"></p>
+    <button id="retry-button">重試</button>
+  </div>
+
+  <div id="wifi-prompt-view" class="state-view hidden">
+    <p>請先連線到裝置的 WiFi<br>（設定熱點 Plant-Setup 或家用 WiFi）</p>
+    <button id="open-settings-button">前往 WiFi 設定</button>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

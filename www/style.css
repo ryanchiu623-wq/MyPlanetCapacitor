@@ -1,0 +1,95 @@
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  width: 100%;
+  height: 100%;
+  background: #0f1115;
+  overflow: hidden;
+  font-family: -apple-system, 'Segoe UI', 'Noto Sans TC', sans-serif;
+}
+
+.device-frame {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: none;
+  background: #0f1115;
+}
+
+.hidden {
+  display: none !important;
+}
+
+.reload-fab {
+  position: fixed;
+  right: 18px;
+  bottom: calc(18px + env(safe-area-inset-bottom, 0px));
+  width: 48px;
+  height: 48px;
+  border-radius: 50%;
+  background: rgba(20, 24, 30, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  color: #ffffff;
+  font-size: 1.3rem;
+  line-height: 1;
+  z-index: 20;
+  cursor: pointer;
+}
+
+.reload-fab:active {
+  background: rgba(0, 210, 135, 0.2);
+}
+
+.state-view {
+  position: fixed;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+  padding: 32px;
+  text-align: center;
+  background: #0f1115;
+  color: #ffffff;
+  z-index: 10;
+}
+
+.state-view p {
+  color: #ffffff;
+  font-size: 1rem;
+  line-height: 1.6;
+  white-space: pre-line;
+}
+
+.state-view button {
+  background: rgba(0, 210, 135, 0.15);
+  border: 1px solid rgba(0, 210, 135, 0.4);
+  color: #ffffff;
+  border-radius: 12px;
+  padding: 12px 22px;
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+
+.state-view button:active {
+  background: rgba(0, 210, 135, 0.28);
+}
+
+.spinner {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  border: 3px solid rgba(255, 255, 255, 0.15);
+  border-top-color: #00d287;
+  animation: spin 0.9s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
