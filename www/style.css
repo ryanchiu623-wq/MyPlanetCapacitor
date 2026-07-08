@@ -9,7 +9,9 @@ html, body {
   height: 100%;
   background: #0f1115;
   overflow: hidden;
-  font-family: -apple-system, 'Segoe UI', 'Noto Sans TC', sans-serif;
+  /* 不放 -apple-system / system-ui：iOS 26 WebKit 一旦由它們開頭，
+     中文字元不會往後 fallback，全部變缺字框（Safari 實測，PingFang 放後面也沒用） */
+  font-family: 'Segoe UI', 'Noto Sans TC', sans-serif;
 }
 
 .device-frame {
@@ -36,6 +38,7 @@ html, body {
   border: 1px solid rgba(255, 255, 255, 0.15);
   color: #ffffff;
   font-size: 1.3rem;
+  font-family: inherit;
   line-height: 1;
   z-index: 20;
   cursor: pointer;
@@ -74,6 +77,8 @@ html, body {
   border-radius: 12px;
   padding: 12px 22px;
   font-size: 0.95rem;
+  /* button 不繼承字型，UA 預設是系統字型，會踩到上面的 iOS 26 缺字框問題 */
+  font-family: inherit;
   cursor: pointer;
 }
 
