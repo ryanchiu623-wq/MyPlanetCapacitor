@@ -49,6 +49,8 @@
 	<true/>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>需要存取本機網路以搜尋並連線到您的 MyPlanet 裝置</string>
+	<key>NSLocationWhenInUseUsageDescription</key>
+	<string>需要定位權限才能讀取目前 WiFi 名稱，以判斷是否已連線到 MyPlanet 裝置（iOS 系統規定）</string>
 	<key>NSBonjourServices</key>
 	<array>
 		<string>_http._tcp</string>

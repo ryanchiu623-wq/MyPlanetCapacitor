@@ -1,6 +1,7 @@
 import Foundation
 import Network
 import NetworkExtension
+import CoreLocation
 import UIKit
 import Capacitor
 
@@ -14,7 +15,7 @@ import Capacitor
 /// - openWifiSettings：iOS 沒有公開 API 能直接開啟系統 WiFi 設定頁，只能開本 App
 ///   的設定頁（跟 ios-kit ContentView.swift 的 wifiPromptView 做法一致）。
 @objc(DeviceNetworkPlugin)
-public class DeviceNetworkPlugin: CAPPlugin, CAPBridgedPlugin {
+public class DeviceNetworkPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManagerDelegate {
     public let identifier = "DeviceNetworkPlugin"
     public let jsName = "DeviceNetwork"
     public let pluginMethods: [CAPPluginMethod] = [
@@ -32,12 +33,40 @@ public class DeviceNetworkPlugin: CAPPlugin, CAPBridgedPlugin {
     private var discoveryFinished = true
     private var activeDiscoverCall: CAPPluginCall?
 
-    /// 需要 Xcode target 的 Signing & Capabilities 加上「Access WiFi Information」
-    /// （對應 entitlement com.apple.developer.networking.wifi-info），否則會一直拿到 nil。
+    private var locationManager: CLLocationManager?
+    private var pendingSsidCall: CAPPluginCall?
+
+    /// 讀取 SSID 需要兩個條件同時成立（缺一都只會拿到 nil）：
+    /// 1. entitlement com.apple.developer.networking.wifi-info（App.entitlements）
+    /// 2. 使用者授權「使用 App 期間」定位（對應 Android 版的 ACCESS_FINE_LOCATION 執行時權限）
     @objc func getCurrentSsid(_ call: CAPPluginCall) {
+        DispatchQueue.main.async {
+            let manager = self.locationManager ?? CLLocationManager()
+            self.locationManager = manager
+            manager.delegate = self
+
+            if manager.authorizationStatus == .notDetermined {
+                self.pendingSsidCall = call
+                manager.requestWhenInUseAuthorization()
+            } else {
+                self.fetchSsid(call)
+            }
+        }
+    }
+
+    private func fetchSsid(_ call: CAPPluginCall) {
         NEHotspotNetwork.fetchCurrent { network in
             call.resolve(["ssid": network?.ssid ?? ""])
         }
+    }
+
+    /// 授權對話框關閉後接續原本的 getCurrentSsid 呼叫。
+    /// 被拒絕也照樣查一次：fetchCurrent 會回 nil，JS 端拿到空字串，行為跟 Android 版一致。
+    public func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        guard manager.authorizationStatus != .notDetermined,
+              let call = pendingSsidCall else { return }
+        pendingSsidCall = nil
+        fetchSsid(call)
     }
 
     /// iOS 沒有對應 API，維持跟 www/app.js 的呼叫合約相容（no-op 直接成功）。
