@@ -25,6 +25,7 @@
   const errorMessage = document.getElementById('error-message');
   const wifiPromptView = document.getElementById('wifi-prompt-view');
   const retryButton = document.getElementById('retry-button');
+  const wifiRetryButton = document.getElementById('wifi-retry-button');
   const openSettingsButton = document.getElementById('open-settings-button');
   const reloadFab = document.getElementById('reload-fab');
 
@@ -79,17 +80,12 @@
       const result = await DeviceNetwork.getCurrentSsid();
       ssid = (result && result.ssid) || '';
     } catch (e) {
-      // 讀取失敗（例如權限被拒絕）視同沒有 WiFi
+      // 讀取失敗（例如權限被拒絕、或 iOS 免費帳號 wifi-info entitlement 未生效）
       ssid = '';
     }
 
-    if (!ssid) {
-      mode = 'unknown';
-      showWifiPrompt();
-      return;
-    }
-
-    if (ssid.toLowerCase() === SETUP_SSID.toLowerCase()) {
+    // 設定熱點模式：只有在「明確讀到 SSID 且等於 Plant-Setup」時才走固定 IP。
+    if (ssid && ssid.toLowerCase() === SETUP_SSID.toLowerCase()) {
       if (mode === 'setupAP') return;
       mode = 'setupAP';
       showConnecting('正在連線到裝置設定熱點…');
@@ -99,31 +95,39 @@
       } catch (e) {
         showError('無法綁定裝置設定熱點的連線，請確認手機仍連在 Plant-Setup');
       }
-    } else {
-      if (mode === 'homeWifi') return;
-      mode = 'homeWifi';
-      await DeviceNetwork.unbindNetwork().catch(() => {});
-      showConnecting('正在家用網路上尋找裝置…');
-      try {
-        const result = await DeviceNetwork.discoverDevice({
-          hostnameHint: EXPECTED_MDNS_NAME,
-          timeoutMs: DISCOVERY_TIMEOUT_MS
-        });
-        if (result && result.ip) {
-          showDevice(result.ip);
-        } else {
-          throw new Error('not found');
-        }
-      } catch (e) {
-        showError(
-          '在目前 WiFi 網路上找不到裝置。\n' +
-          '請確認手機與裝置在同一個 WiFi，或裝置是否仍在初始設定中（改連 Plant-Setup 熱點）'
-        );
+      return;
+    }
+
+    // 其餘情況（含「SSID 讀不到」，例如 iOS 模擬器、或實機 wifi-info entitlement 未生效）：
+    // 一律直接用 mDNS 在區網尋找裝置。找裝置本身不需要知道 SSID，
+    // 只要手機／Mac 與裝置在同一個 WiFi，Bonjour 就能找到。
+    if (mode === 'homeWifi') return;
+    mode = 'homeWifi';
+    await DeviceNetwork.unbindNetwork().catch(() => {});
+    showConnecting(ssid ? '正在家用網路上尋找裝置…' : '正在尋找裝置…');
+    try {
+      const result = await DeviceNetwork.discoverDevice({
+        hostnameHint: EXPECTED_MDNS_NAME,
+        timeoutMs: DISCOVERY_TIMEOUT_MS
+      });
+      if (result && result.ip) {
+        showDevice(result.ip);
+        return;
       }
+      throw new Error('not found');
+    } catch (e) {
+      mode = 'unknown'; // 重設，讓使用者可以重試
+      // 找不到裝置：統一導到「找不到裝置」提示畫面（含重試 / 前往 WiFi 設定）
+      showWifiPrompt();
     }
   }
 
   retryButton.addEventListener('click', () => {
+    mode = 'unknown';
+    checkAndRoute();
+  });
+
+  wifiRetryButton.addEventListener('click', () => {
     mode = 'unknown';
     checkAndRoute();
   });

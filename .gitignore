@@ -10,3 +10,12 @@ android/.idea/
 *.iml
 android/app/release/
 android/app/debug/
+
+# iOS build / 打包產物
+ios/App/build/
+ios/App/Payload/
+ios/App/DerivedData/
+*.ipa
+
+# Claude Code 本地設定
+.claude/
