@@ -1,5 +1,4 @@
 import Foundation
-import Network
 import NetworkExtension
 import CoreLocation
 import UIKit
@@ -15,7 +14,7 @@ import Capacitor
 /// - openWifiSettings：iOS 沒有公開 API 能直接開啟系統 WiFi 設定頁，只能開本 App
 ///   的設定頁（跟 ios-kit ContentView.swift 的 wifiPromptView 做法一致）。
 @objc(DeviceNetworkPlugin)
-public class DeviceNetworkPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManagerDelegate {
+public class DeviceNetworkPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManagerDelegate, NetServiceBrowserDelegate, NetServiceDelegate {
     public let identifier = "DeviceNetworkPlugin"
     public let jsName = "DeviceNetwork"
     public let pluginMethods: [CAPPluginMethod] = [
@@ -27,11 +26,14 @@ public class DeviceNetworkPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
     ]
 
     private static let validateTimeoutSeconds: TimeInterval = 2
+    private static let resolveTimeoutSeconds: TimeInterval = 5
 
-    private var browser: NWBrowser?
+    private var netServiceBrowser: NetServiceBrowser?
+    private var resolvingServices: [NetService] = []
     private var discoveryTimeoutWorkItem: DispatchWorkItem?
     private var discoveryFinished = true
     private var activeDiscoverCall: CAPPluginCall?
+    private var activeHostnameHint = ""
 
     private var locationManager: CLLocationManager?
     private var pendingSsidCall: CAPPluginCall?
@@ -78,30 +80,26 @@ public class DeviceNetworkPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
         call.resolve()
     }
 
+    // 原本用 NWBrowser + NWConnection.currentPath?.remoteEndpoint 來拿解析後的 IP，
+    // 但這個 trick 在 iOS 上不可靠：很多情況下 remoteEndpoint 永遠停留在
+    // .service(...)，不會變成 .hostPort(...)，導致永遠解析不到、一路卡到逾時
+    // （這就是實機測試「一直偵測不到裝置」的成因）。
+    // 改用成熟穩定的 NetServiceBrowser + NetService.resolve(withTimeout:)，
+    // 直接拿 resolved 的位址 bytes，不靠那個不可靠的狀態判斷。
     @objc func discoverDevice(_ call: CAPPluginCall) {
-        let hostnameHint = call.getString("hostnameHint", "myplanet").lowercased()
+        activeHostnameHint = call.getString("hostnameHint", "myplanet").lowercased()
         let timeoutMs = call.getInt("timeoutMs", 8000)
 
         stopDiscoveryInternal()
         discoveryFinished = false
         activeDiscoverCall = call
 
-        let params = NWParameters()
-        params.includePeerToPeer = false
-        let browser = NWBrowser(for: .bonjour(type: "_http._tcp", domain: nil), using: params)
-        self.browser = browser
-
-        browser.browseResultsChangedHandler = { [weak self] results, _ in
-            guard let self, !self.discoveryFinished else { return }
-            for result in results {
-                if case let .service(name, _, _, _) = result.endpoint,
-                   name.lowercased().contains(hostnameHint) {
-                    self.resolve(result.endpoint)
-                }
-            }
-        }
-
-        browser.start(queue: .main)
+        let browser = NetServiceBrowser()
+        browser.delegate = self
+        netServiceBrowser = browser
+        // 注意：NetServiceBrowser 用的是「結尾有點」的格式："_http._tcp." + "local."
+        // 跟 Network.framework 的 NWBrowser Bonjour descriptor 格式不同，別搞混
+        browser.searchForServices(ofType: "_http._tcp.", inDomain: "local.")
 
         let timeoutWorkItem = DispatchWorkItem { [weak self] in
             guard let self, !self.discoveryFinished else { return }
@@ -114,22 +112,19 @@ public class DeviceNetworkPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
         DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(timeoutMs), execute: timeoutWorkItem)
     }
 
-    private func resolve(_ endpoint: Network.NWEndpoint) {
-        let connection = NWConnection(to: endpoint, using: .tcp)
-        connection.stateUpdateHandler = { [weak self] newState in
-            guard let self else { return }
-            if case .ready = newState {
-                if let remote = connection.currentPath?.remoteEndpoint,
-                   case let .hostPort(host, _) = remote {
-                    let ip = "\(host)".components(separatedBy: "%").first ?? "\(host)"
-                    connection.cancel()
-                    self.validateAndResolve(ip: ip)
-                }
-            } else if case .failed = newState {
-                connection.cancel()
-            }
+    /// 把 NetService.addresses 裡的 sockaddr bytes 轉成 IP 字串，優先取 IPv4
+    /// （IPv6 常是 fe80:: link-local，組 URL 還要處理 zone id，不值得折騰）
+    private static func ipv4Address(from data: Data) -> String? {
+        data.withUnsafeBytes { raw -> String? in
+            guard raw.count >= 8 else { return nil }
+            let family = raw.load(fromByteOffset: 1, as: UInt8.self)
+            guard family == UInt8(AF_INET) else { return nil }
+
+            var addr = raw.load(fromByteOffset: 4, as: in_addr.self)
+            var buf = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
+            guard inet_ntop(AF_INET, &addr, &buf, socklen_t(INET_ADDRSTRLEN)) != nil else { return nil }
+            return String(cString: buf)
         }
-        connection.start(queue: .main)
     }
 
     /// 打 /api/status 驗證這個 host 真的是 MyPlanet 裝置，避免撞到其他 _http._tcp. 裝置
@@ -158,8 +153,10 @@ public class DeviceNetworkPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
     private func stopDiscoveryInternal() {
         discoveryTimeoutWorkItem?.cancel()
         discoveryTimeoutWorkItem = nil
-        browser?.cancel()
-        browser = nil
+        netServiceBrowser?.stop()
+        netServiceBrowser = nil
+        resolvingServices.forEach { $0.stop() }
+        resolvingServices.removeAll()
     }
 
     /// iOS 沒有公開 API 能直接開啟系統 WiFi 設定頁（不像 Android
@@ -171,5 +168,27 @@ public class DeviceNetworkPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
             }
             call.resolve()
         }
+    }
+
+    // ── NetServiceBrowser / NetService delegate ───────────────────
+    public func netServiceBrowser(_ browser: NetServiceBrowser, didFind service: NetService, moreComing: Bool) {
+        guard !discoveryFinished else { return }
+        guard service.name.lowercased().contains(activeHostnameHint) else { return }
+        service.delegate = self
+        resolvingServices.append(service)
+        service.resolve(withTimeout: Self.resolveTimeoutSeconds)
+    }
+
+    public func netServiceDidResolveAddress(_ sender: NetService) {
+        guard !discoveryFinished, let addresses = sender.addresses else { return }
+        for data in addresses {
+            if let ip = Self.ipv4Address(from: data) {
+                validateAndResolve(ip: ip)
+            }
+        }
+    }
+
+    public func netService(_ sender: NetService, didNotResolve errorDict: [String: NSNumber]) {
+        // 這個候選解析失敗，忽略即可，繼續等其他候選或直到逾時
     }
 }
