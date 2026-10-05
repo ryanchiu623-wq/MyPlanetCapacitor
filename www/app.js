@@ -98,13 +98,33 @@
       return;
     }
 
-    // 其餘情況（含「SSID 讀不到」，例如 iOS 模擬器、或實機 wifi-info entitlement 未生效）：
-    // 一律直接用 mDNS 在區網尋找裝置。找裝置本身不需要知道 SSID，
-    // 只要手機／Mac 與裝置在同一個 WiFi，Bonjour 就能找到。
-    if (mode === 'homeWifi') return;
-    mode = 'homeWifi';
+    // 其餘情況（含「SSID 讀不到」，例如 iOS 免費帳號下 wifi-info entitlement
+    // 未生效 —— 這時 SSID 永遠是空字串，不能再靠它判斷是不是在設定熱點上）：
+    // 不能只靠 SSID，改成先直接探測固定 IP 192.168.4.1（設定熱點模式的特徵），
+    // 探測不到才回退 mDNS（家用網路模式）。
+    //
+    // 注意：探測是呼叫原生外掛做的，不是在這裡用 fetch()。ESP32 的 /api/status
+    // 沒有送 Access-Control-Allow-Origin，瀏覽器的 fetch() 會被 CORS 擋掉；
+    // iframe 用 src= 導航不受 CORS 限制，但主動探測不能這樣做。
+    if (mode === 'probing') return;
+    mode = 'probing';
     await DeviceNetwork.unbindNetwork().catch(() => {});
-    showConnecting(ssid ? '正在家用網路上尋找裝置…' : '正在尋找裝置…');
+    showConnecting('正在尋找裝置…');
+
+    try {
+      // 原生端固定用 ~2 秒逾時驗證（Android VALIDATE_TIMEOUT_MS / iOS validateTimeoutSeconds），
+      // 這裡不用傳 timeoutMs，兩邊目前都不支援覆寫它
+      const probe = await DeviceNetwork.probeHost({ ip: SETUP_HOST });
+      if (probe && probe.ok) {
+        mode = 'setupAP';
+        showDevice(SETUP_HOST);
+        return;
+      }
+    } catch (e) {
+      // 探測失敗（例如找不到這個 plugin method），繼續往下走 mDNS
+    }
+
+    mode = 'homeWifi';
     try {
       const result = await DeviceNetwork.discoverDevice({
         hostnameHint: EXPECTED_MDNS_NAME,

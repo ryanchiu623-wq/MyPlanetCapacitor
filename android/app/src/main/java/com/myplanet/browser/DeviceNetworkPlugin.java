@@ -35,6 +35,8 @@ import java.net.URL;
  * - bindSetupNetwork / unbindNetwork：綁定/解除「設定熱點」這個無網際網路的 WiFi，
  *   避免系統把流量導去行動網路（跟原生版 MainActivity 的做法完全相同）
  * - discoverDevice：用 NsdManager 找家用網路上的裝置 IP，並打 /api/status 驗證
+ * - probeHost：直接探測指定 IP（預設 192.168.4.1）是否為 MyPlanet 裝置，
+ *   SSID 讀不到時用來判斷是否在設定熱點上，不受 WebView CORS 限制
  * - openWifiSettings：開系統 WiFi 設定頁
  */
 @CapacitorPlugin(
@@ -260,6 +262,25 @@ public class DeviceNetworkPlugin extends Plugin {
         } catch (Exception e) {
             return false;
         }
+    }
+
+    /**
+     * 直接探測指定 IP 是否為 MyPlanet 裝置，不靠 SSID、不靠 mDNS。
+     * 用來在 SSID 讀不到（例如 iOS 免費帳號下 wifi-info entitlement 未生效）時，
+     * 仍能判斷「是不是連在設定熱點 192.168.4.1 上」。
+     * 必須放在原生端：www/app.js 用 fetch() 直接打 192.168.4.1 會被 CORS 擋掉
+     * （ESP32 的 /api/status 沒有送 Access-Control-Allow-Origin），
+     * 原生 HttpURLConnection 不受 CORS 限制。
+     */
+    @PluginMethod
+    public void probeHost(PluginCall call) {
+        String ip = call.getString("ip", "192.168.4.1");
+        new Thread(() -> {
+            boolean ok = validateHost(ip);
+            JSObject ret = new JSObject();
+            ret.put("ok", ok);
+            call.resolve(ret);
+        }).start();
     }
 
     private void stopDiscoveryInternal() {

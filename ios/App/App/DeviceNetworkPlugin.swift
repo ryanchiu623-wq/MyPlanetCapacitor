@@ -22,6 +22,7 @@ public class DeviceNetworkPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
         CAPPluginMethod(name: "bindSetupNetwork", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "unbindNetwork", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "discoverDevice", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "probeHost", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "openWifiSettings", returnType: CAPPluginReturnPromise)
     ]
 
@@ -128,17 +129,25 @@ public class DeviceNetworkPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
     }
 
     /// 打 /api/status 驗證這個 host 真的是 MyPlanet 裝置，避免撞到其他 _http._tcp. 裝置
-    private func validateAndResolve(ip: String) {
-        guard let url = URL(string: "http://\(ip)/api/status") else { return }
+    private static func checkDevice(at ip: String, completion: @escaping (Bool) -> Void) {
+        guard let url = URL(string: "http://\(ip)/api/status") else {
+            completion(false)
+            return
+        }
         var request = URLRequest(url: url)
         request.timeoutInterval = Self.validateTimeoutSeconds
 
-        URLSession.shared.dataTask(with: request) { [weak self] data, response, _ in
-            guard let self else { return }
-            guard let http = response as? HTTPURLResponse, http.statusCode == 200,
-                  let data, let body = String(data: data, encoding: .utf8),
-                  body.contains("sensor_normalized") else { return }
+        URLSession.shared.dataTask(with: request) { data, response, _ in
+            let ok = (response as? HTTPURLResponse)?.statusCode == 200
+                && data != nil
+                && String(data: data!, encoding: .utf8)?.contains("sensor_normalized") == true
+            completion(ok)
+        }.resume()
+    }
 
+    private func validateAndResolve(ip: String) {
+        Self.checkDevice(at: ip) { [weak self] ok in
+            guard ok, let self else { return }
             DispatchQueue.main.async {
                 guard !self.discoveryFinished else { return }
                 self.discoveryFinished = true
@@ -147,7 +156,22 @@ public class DeviceNetworkPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
                 self.activeDiscoverCall?.resolve(["ip": ip])
                 self.activeDiscoverCall = nil
             }
-        }.resume()
+        }
+    }
+
+    /// 直接探測指定 IP 是否為 MyPlanet 裝置，不靠 SSID、不靠 mDNS。
+    /// 用來在 SSID 讀不到（例如 iOS 免費帳號下 wifi-info entitlement 未生效）時，
+    /// 仍能判斷「是不是連在設定熱點 192.168.4.1 上」。
+    /// 必須放在原生端：www/app.js 用 fetch() 直接打 192.168.4.1 會被 CORS 擋掉
+    /// （ESP32 的 /api/status 沒有送 Access-Control-Allow-Origin），
+    /// 原生 URLSession 不受 CORS 限制。
+    @objc func probeHost(_ call: CAPPluginCall) {
+        let ip = call.getString("ip") ?? "192.168.4.1"
+        Self.checkDevice(at: ip) { ok in
+            DispatchQueue.main.async {
+                call.resolve(["ok": ok])
+            }
+        }
     }
 
     private func stopDiscoveryInternal() {
